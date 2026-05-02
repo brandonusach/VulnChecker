@@ -1,0 +1,14 @@
+FROM eclipse-temurin:21-jdk-alpine
+WORKDIR /app
+# Copiamos los archivos de configuración de Maven
+COPY .mvn/ .mvn
+COPY mvnw pom.xml ./
+# Le damos permisos de ejecución al wrapper de Maven
+RUN chmod +x mvnw
+# Descargamos las dependencias (esto se cachea)
+RUN ./mvnw dependency:go-offline
+# Copiamos el código fuente
+COPY src ./src
+
+# En modo DEV, el comando por defecto será correr Spring Boot (ruta absoluta por si el entrypoint de la imagen base cambia el cwd)
+CMD ["/app/mvnw", "spring-boot:run"]

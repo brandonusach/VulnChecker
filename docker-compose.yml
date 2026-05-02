@@ -1,0 +1,261 @@
+# Seguridad: redes segmentadas, no-new-privileges, puertos en 127.0.0.1, sin privilegios extra
+# name fija el proyecto para que las imágenes sean vulnchecker-backend, vulnchecker-frontend (pipeline Jenkins)
+name: vulnchecker
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: vuln-db
+    networks:
+      - app_internal
+    environment:
+      - POSTGRES_DB=vulncheck
+      - POSTGRES_USER=${DB_USERNAME:-vulnuser}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-vulnpass}
+    ports:
+      - '127.0.0.1:5433:5432'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-vulnuser} -d vulncheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+    read_only: false  # PostgreSQL necesita escribir en su volumen
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./vulncheckerbackend
+      dockerfile: Dockerfile.dev
+    container_name: vuln-backend
+    networks:
+      - app_internal
+      - devsecops_net
+    ports:
+      - '127.0.0.1:8080:8080'
+    # Montar solo src, pom y .mvn para no tapar /app/mvnw (evita "mvnw: not found" en algunos entornos)
+    volumes:
+      - ./vulncheckerbackend/src:/app/src
+      - ./vulncheckerbackend/pom.xml:/app/pom.xml
+      - ./vulncheckerbackend/.mvn:/app/.mvn
+      - m2_cache:/root/.m2
+    environment:
+      - DB_USERNAME=${DB_USERNAME:-vulnuser}
+      - DB_PASSWORD=${DB_PASSWORD:-vulnpass}
+      - DB_O_LOCALHOST=db
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/vulncheck
+      - SPRING_FLYWAY_URL=jdbc:postgresql://db:5432/vulncheck
+    command: /app/mvnw spring-boot:run
+    depends_on:
+      db:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: vuln-frontend
+    networks:
+      - devsecops_net
+    ports:
+      - '127.0.0.1:5173:5173'
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - VITE_PROXY_TARGET=http://backend:8080
+    depends_on:
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  jenkins:
+    profiles:
+      - devsecops
+    build:
+      context: .
+      dockerfile: Dockerfile.jenkins
+    container_name: vuln-jenkins
+    networks:
+      - devsecops_net
+      - sonarnet
+    ports:
+      - '127.0.0.1:8081:8080'
+      - '127.0.0.1:50000:50000'
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Informes del pipeline en la carpeta del proyecto (donde está docker-compose)
+      - ./jenkins-reports:/jenkins-reports
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    user: root
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  grafana:
+    profiles:
+      - devsecops
+    image: grafana/grafana:latest
+    container_name: vuln-grafana
+    networks:
+      - devsecops_net
+    ports:
+      - '127.0.0.1:3000:3000'
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION=false
+      # Con HTTPS (reverse proxy) poner a true: GF_SECURITY_COOKIE_SECURE, GF_SECURITY_STRICT_TRANSPORT_SECURITY
+      - GF_SECURITY_COOKIE_SECURE=${GF_COOKIE_SECURE:-false}
+      - GF_SECURITY_STRICT_TRANSPORT_SECURITY=${GF_HSTS:-false}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+
+  prometheus:
+    profiles:
+      - devsecops
+    image: prom/prometheus:latest
+    container_name: vuln-prometheus
+    networks:
+      - devsecops_net
+    ports:
+      - '127.0.0.1:9090:9090'
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+
+  # Si ves "upgrade from is too old" o "cannot downgrade": borra la BD de SonarQube y arranca limpio (ver README o comentario en sonar-db).
+  sonarqube:
+    profiles:
+      - devsecops
+    image: sonarqube:latest
+    container_name: vuln-sonarqube
+    networks:
+      - sonarnet
+    ports:
+      - "127.0.0.1:9000:9000"
+    environment:
+      - SONAR_JDBC_URL=jdbc:postgresql://sonar-db:5432/sonar
+      - SONAR_JDBC_USERNAME=sonar
+      - SONAR_JDBC_PASSWORD=${SONAR_DB_PASSWORD:-sonar}
+      # Más heap para que el análisis no se quede colgado (Compute Engine procesa el análisis; Search es Elasticsearch)
+      - SONAR_CE_JAVAOPTS=-Xmx2g -Xms512m
+      - SONAR_SEARCH_JAVAOPTS=-Xmx1g -Xms1g
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+    depends_on:
+      sonar-db:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  # Para arranque limpio (error "upgrade from is too old"): docker compose stop sonarqube sonar-db && docker volume rm vulnchecker_sonar_db_data && docker compose up -d sonar-db sonarqube
+  sonar-db:
+    profiles:
+      - devsecops
+    image: postgres:16-alpine
+    container_name: vuln-sonar-db
+    networks:
+      - sonarnet
+    environment:
+      - POSTGRES_DB=sonar
+      - POSTGRES_USER=sonar
+      - POSTGRES_PASSWORD=${SONAR_DB_PASSWORD:-sonar}
+    volumes:
+      - sonar_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d sonar"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    # Sin puertos publicados: solo accesible desde SonarQube
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+
+  # --- OWASP ZAP (DAST): API/daemon para escaneos manuales o por API ---
+  zap:
+    profiles:
+      - devsecops
+    image: ghcr.io/zaproxy/zaproxy:latest
+    container_name: vuln-zap
+    networks:
+      - devsecops_net
+    ports:
+      - '127.0.0.1:8090:8080'
+    command: zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.addrs.addr.name=.* -config api.addrs.addr.regex=true
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  # --- OWASP Dependency Check: contenedor disponible para escaneos (CLI, sin servidor) ---
+  dependency-check:
+    profiles:
+      - devsecops
+    image: owasp/dependency-check:latest
+    container_name: vuln-dependency-check
+    networks:
+      - devsecops_net
+    volumes:
+      - dependency_check_data:/usr/share/dependency-check/data
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["sleep infinity"]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+networks:
+  app_internal:
+    name: vulnchecker_app_internal
+    internal: true   # Sin salida a internet; solo backend (vía devsecops_net) y db
+  devsecops_net:
+    name: vulnchecker_devsecops
+  sonarnet:
+    name: vulnchecker_sonarnet
+
+volumes:
+  sonar_db_data:
+  sonarqube_data:
+  jenkins_home:
+  grafana_data:
+  prometheus_data:
+  m2_cache:
+  dependency_check_data:

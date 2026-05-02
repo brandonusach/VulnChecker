@@ -1,0 +1,244 @@
+/* Consumer.css */
+
+.consumer-container {
+    min-height: 100vh;
+    background-color: #121212;
+    color: white;
+    font-family: 'Segoe UI', sans-serif;
+    /* Ajusta este padding-top según la altura real de tu Navbar */
+    padding: 100px 2rem 4rem 2rem; 
+    display: flex;
+    justify-content: center;
+}
+
+.consumer-content-wrapper {
+    width: 100%;
+    max-width: 900px;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.consumer-header {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.back-button {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    cursor: pointer;
+    color: #007bff;
+    padding: 10px;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.back-button:hover {
+    background-color: #252525;
+    border-color: #007bff;
+    transform: translateX(-3px);
+}
+
+.welcome-text {
+    font-size: 2.8rem;
+    margin: 0;
+}
+
+.consumer-card {
+    background-color: #1e1e1e;
+    border: 1px solid #333;
+    padding: 3rem;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.db-icon-container {
+    text-align: center;
+    margin-bottom: 2.5rem;
+}
+
+.icon-wrapper {
+    color: #007bff;
+    margin-bottom: 1rem;
+}
+
+.main-subtitle {
+    color: #888;
+    font-size: 1.1rem;
+}
+
+.wazuh-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.server-row {
+    display: grid;
+    /* Ajustado de 4 a 3 columnas */
+    grid-template-columns: 1.5fr 1.5fr auto; 
+    gap: 1.5rem;
+    align-items: flex-end;
+    padding: 1.5rem;
+    background: #121212;
+    border-radius: 12px;
+    border: 1px solid #333;
+    animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    text-align: left;
+}
+
+.input-group label {
+    font-size: 0.85rem;
+    font-weight: bold;
+    color: #007bff;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.input-group input {
+    background-color: #1e1e1e;
+    border: 1px solid #333;
+    padding: 0.8rem 1rem;
+    border-radius: 8px;
+    font-size: 1rem;
+    color: white;
+    transition: all 0.3s ease;
+}
+
+.input-group input:focus {
+    outline: none;
+    border-color: #007bff;
+}
+
+.add-btn {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    width: 48px;
+    height: 48px;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.remove-btn {
+    background: transparent;
+    border: 1px solid #ff4d4d;
+    color: #ff4d4d;
+    border-radius: 8px;
+    width: 48px;
+    height: 48px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.remove-btn:hover {
+    background: #ff4d4d;
+    color: white;
+}
+
+.submit-btn {
+    margin-top: 1rem;
+    background-color: #007bff;
+    color: white;
+    padding: 1.2rem;
+    border: none;
+    border-radius: 8px;
+    font-size: 1.1rem;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.submit-btn:hover {
+    background-color: #0056b3;
+}
+
+.cred-select {
+    background-color: #1e1e1e;
+    border: 1px solid #333;
+    padding: 0.8rem 1rem;
+    border-radius: 8px;
+    font-size: 1rem;
+    color: white;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23007bff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 1rem center;
+    background-size: 1.2rem;
+}
+
+.cred-select:focus {
+    outline: none;
+    border-color: #007bff;
+}
+
+.cred-select option {
+    background-color: #1e1e1e;
+    color: white;
+}
+
+.add-server-row-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background: transparent;
+    border: 1px dashed #007bff;
+    color: #007bff;
+    padding: 0.8rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-top: -0.5rem; /* Para que quede cerca de la última fila */
+    font-weight: 500;
+}
+
+.add-server-row-btn:hover {
+    background: rgba(0, 123, 255, 0.1);
+    border-style: solid;
+    transform: translateY(-2px);
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.submit-btn.loading-active {
+  background-color: #6366f1;
+  cursor: not-allowed;
+  opacity: 0.9;
+}
+
+.row-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}

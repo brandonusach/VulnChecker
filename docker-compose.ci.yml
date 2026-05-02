@@ -1,0 +1,19 @@
+# Override para pipeline Jenkins: no montar código desde el host.
+# Backend: usa imagen de producción (JAR, sin mvnw) para evitar "/app/mvnw: not found".
+# Frontend: usa imagen de producción (build + nginx), evita "package.json not found".
+services:
+  backend:
+    build:
+      context: ./vulncheckerbackend
+      dockerfile: Dockerfile
+    command: []
+    volumes: []
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    volumes: []
+    # Producción sirve en 80; mismo puerto en host que en desarrollo (5173).
+    ports:
+      - '127.0.0.1:5173:80'

@@ -1,0 +1,188 @@
+:root {
+    --primary-color: #007bff;
+    --bg-color: #121212;
+    --card-bg: #1e1e1e;
+    --text-color: #ffffff;
+    --input-bg: #2c2c2c;
+    --border-color: #333333;
+}
+
+.login-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    /* Cambiamos height por min-height para que pueda crecer */
+    min-height: 100vh; 
+    /* Añadimos padding para que el formulario no toque los bordes en pantallas pequeñas */
+    padding: 2rem 1rem; 
+    background-color: var(--bg-color);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    box-sizing: border-box;
+}
+
+.login-form {
+    background-color: var(--card-bg);
+    padding: 2.5rem;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    width: 100%;
+    /* Volvemos a poner un max-width por defecto para el Login */
+    max-width: 400px; 
+    margin: auto; 
+    text-align: center;
+}
+
+.login-title {
+    color: var(--primary-color);
+    margin-bottom: 0.5rem;
+    font-size: 2rem;
+    font-weight: 700;
+}
+
+.login-subtitle {
+    color: #888;
+    margin-bottom: 2rem;
+    font-size: 0.9rem;
+}
+
+.input-group {
+    text-align: left;
+    margin-bottom: 1.5rem;
+}
+
+.input-group label {
+    display: block;
+    color: var(--text-color);
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+}
+
+.input-group input {
+    width: 100%;
+    padding: 0.8rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background-color: var(--input-bg);
+    color: var(--text-color);
+    font-size: 1rem;
+    box-sizing: border-box;
+}
+
+.input-group input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 4px rgba(0, 123, 255, 0.4);
+}
+
+.login-button {
+    width: 100%;
+    padding: 0.8rem;
+    border: none;
+    border-radius: 6px;
+    background-color: var(--primary-color);
+    color: white;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.login-button:hover {
+    background-color: #0056b3;
+}
+/* Ajuste del contenedor principal del email */
+.email-input-wrapper {
+    display: flex;
+    align-items: stretch; /* Estira el span a la altura del input */
+    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden;
+    height: 45px; /* Altura fija para consistencia */
+}
+
+.email-input-wrapper input {
+    border: none !important;
+    background: transparent !important;
+    flex: 1;
+    padding: 0 1rem;
+    font-size: 1rem; /* Mismo tamaño que el dominio */
+    color: var(--text-color);
+}
+
+.email-domain {
+    padding: 0 1rem;
+    color: var(--primary-color); /* Color azul para que resalte que es institucional */
+    background-color: #252525;
+    display: flex;
+    align-items: center;
+    font-size: 1rem; /* Aumentado para que sea igual al input */
+    font-weight: 500;
+    border-left: 1px solid var(--border-color);
+    user-select: none;
+    white-space: nowrap; /* Evita que el texto se rompa en dos líneas */
+}
+
+/* Efecto de foco para el contenedor completo */
+.email-input-wrapper:focus-within {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 6px rgba(0, 123, 255, 0.3);
+}
+
+/* Estilos adicionales para Register */
+.login-button:disabled {
+    background-color: #444;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+/* Para que los campos en línea (apellidos) se vean bien en móviles */
+@media (max-width: 480px) {
+    .login-form {
+        padding: 1.5rem;
+    }
+    .login-form div[style*="display: flex"] {
+        flex-direction: column;
+        gap: 0 !important;
+    }
+}
+
+/* Añade esto a tu Login.css para mejorar la UX */
+
+.register-link-container {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color); /* Separación sutil */
+}
+
+.register-link {
+    color: var(--primary-color);
+    text-decoration: none;
+    font-weight: 600;
+    transition: color 0.2s ease;
+}
+
+.register-link:hover {
+    color: #00bcff;
+    text-decoration: underline;
+}
+
+/* Feedback para el botón cuando está cargando */
+.login-button:disabled {
+    background-color: #555;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Compactar un poco el registro para que quepa mejor */
+.login-form .input-group {
+    margin-bottom: 1rem; /* Reducido de 1.5rem a 1rem */
+}
+
+.login-form .login-title {
+    font-size: 1.75rem; /* Un poco más pequeño para ahorrar espacio vertical */
+}
+
+.register-form-width {
+    max-width: 550px !important;
+}

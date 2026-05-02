@@ -1,0 +1,13 @@
+# Dashboards: se cargan desde la subcarpeta "default" (vacía por defecto para evitar fallos de provisioning).
+# Para cargar el dashboard de VulnChecker: mover grafana/provisioning/dashboards/vulnchecker-backend.json
+# a grafana/provisioning/dashboards/default/ y reiniciar Grafana.
+apiVersion: 1
+providers:
+  - name: default
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards/default

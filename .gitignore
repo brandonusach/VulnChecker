@@ -1,0 +1,49 @@
+# --- Frontend ---
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# --- Backend (Maven / Java) ---
+vulncheckerbackend/target/
+vulncheckerbackend/*.jar
+vulncheckerbackend/.mvn/wrapper/maven-wrapper.jar
+vulncheckerbackend/.flattened-pom.xml
+*.class
+*.log
+*.war
+*.ear
+*.iml
+.idea/
+*.ipr
+*.iws
+out/
+
+# --- Reportes e datos del pipeline (generados por Jenkins) ---
+reports/
+.owasp-data/
+.owasp-data-backend/
+.owasp-data-frontend/
+jenkins-reports/
+
+# --- Sistema y editores ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-*
+
+# --- Logs y temporales ---
+*.log
+logs/
+tmp/
+temp/
+.cache/

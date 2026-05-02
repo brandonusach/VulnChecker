@@ -1,0 +1,3 @@
+# Alerting provisioning (opcional, vacío)
+apiVersion: 1
+groups: []

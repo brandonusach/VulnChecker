@@ -1,0 +1,31 @@
+:root {
+  --bg-dark: #121212;
+  --bg-card: #1e1e1e;
+  --bg-input: #2c2c2c;
+  --primary: #007bff;
+  --primary-hover: #0056b3;
+  --text-main: #ffffff;
+  --text-muted: #888888;
+  --border: #333333;
+  --danger: #ff4d4d;
+  --radius: 12px;
+  --nav-height: 70px; /* Definimos la altura de la Navbar aquí */
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', sans-serif;
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  line-height: 1.5;
+}
+
+/* Scrollbar Dark */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: var(--bg-dark); }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }

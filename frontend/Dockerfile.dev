@@ -1,0 +1,9 @@
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN test -f package.json || (echo "Build context error: package.json not found. Rebuild with: docker compose build --no-cache frontend" && exit 1)
+RUN npm install
+COPY . .
+RUN test -f package.json || (echo "Build context error: package.json missing after COPY" && exit 1)
+EXPOSE 5173
+CMD ["sh", "./docker-entrypoint.sh"]
