@@ -1,0 +1,8 @@
+#Levantar SSH
+docker run -d --name ssh-test -p 2222:22 rastasheep/ubuntu-sshd:18.04
+
+#Cambiar pass
+docker exec ssh-test bash -c "echo 'root:password123' | chpasswd"
+
+# borrar, todo en un solo paso
+docker rm -f ssh-test
