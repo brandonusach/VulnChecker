@@ -1,0 +1,30 @@
+services:
+
+  wazuh-manager:
+    image: wazuh/wazuh-manager:4.9.0
+    hostname: wazuh-manager
+    ports:
+      - "55000:55000"   # Manager API
+    environment:
+      - INDEXER_URL=https://wazuh-indexer:9200
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=SecretPassword
+      - FILEBEAT_SSL_VERIFICATION_MODE=none
+    volumes:
+      - wazuh-manager-data:/var/ossec/data
+    depends_on:
+      - wazuh-indexer
+
+  wazuh-indexer:
+    image: wazuh/wazuh-indexer:4.9.0
+    hostname: wazuh-indexer
+    ports:
+      - "9202:9200"     # OpenSearch API (9202 local → 9200 del contenedor)
+    environment:
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - wazuh-indexer-data:/var/lib/wazuh-indexer
+
+volumes:
+  wazuh-manager-data:
+  wazuh-indexer-data:

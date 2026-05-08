@@ -1,8 +1,232 @@
-#Levantar SSH
-docker run -d --name ssh-test -p 2222:22 rastasheep/ubuntu-sshd:18.04
+=========================================================
+  GUÍA: WAZUH SINGLE-NODE + SSH TUNNEL + SPRING BOOT
+=========================================================
 
-#Cambiar pass
-docker exec ssh-test bash -c "echo 'root:password123' | chpasswd"
+----------------------------------------------------------
+1. CLONAR REPOSITORIO Y CAMBIAR A LA VERSIÓN 4.9.1
+----------------------------------------------------------
+git clone https://github.com/wazuh/wazuh-docker.git
+cd wazuh-docker
+git checkout v4.9.1
+cd single-node
 
-# borrar, todo en un solo paso
-docker rm -f ssh-test
+
+----------------------------------------------------------
+2. GENERAR CERTIFICADOS
+----------------------------------------------------------
+docker-compose -f generate-indexer-certs.yml up
+
+Esperar que el contenedor termine con "exited with code 0".
+
+
+----------------------------------------------------------
+3. AGREGAR PUERTO SSH EN docker-compose.yml
+----------------------------------------------------------
+Abrir el archivo:
+  single-node/docker-compose.yml
+
+Buscar el servicio "wazuh.manager" y agregar el puerto:
+
+    ports:
+      - "1514:1514"
+      - "1515:1515"
+      - "514:514/udp"
+      - "55000:55000"
+      - "2222:22"      <-- AGREGAR ESTA LÍNEA
+
+
+----------------------------------------------------------
+4. LEVANTAR EL STACK
+----------------------------------------------------------
+Abrir PowerShell como ADMINISTRADOR y ejecutar:
+
+  cd C:\...\wazuh-docker\single-node
+  net stop winnat
+  docker-compose up -d
+  net start winnat
+
+IMPORTANTE: Siempre usar "net stop/start winnat" para evitar
+el error de puertos no disponibles en Windows.
+
+Para ver los logs y esperar que esté listo:
+  docker-compose logs -f wazuh.dashboard
+  (esperar "Server running at https://0.0.0.0:5601")
+  (Ctrl+C para salir de los logs)
+
+
+----------------------------------------------------------
+5. INSTALAR Y CONFIGURAR SSH EN EL WAZUH-MANAGER
+----------------------------------------------------------
+NOTA: Estos pasos deben repetirse CADA VEZ que se reinicie
+el contenedor, ya que SSH no persiste.
+
+Entrar al contenedor:
+  docker exec -it single-node-wazuh.manager-1 bash
+
+Dentro del contenedor ejecutar UNO POR UNO:
+
+  dnf install openssh-server -y
+
+  ssh-keygen -A
+
+  sed -i '67s/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+  echo 'root:password123' | chpasswd
+
+  /usr/sbin/sshd
+
+  exit
+
+IMPORTANTE: No copiar y pegar todos juntos, ejecutar uno por uno.
+
+
+----------------------------------------------------------
+6. VERIFICAR SSH DESDE WINDOWS
+----------------------------------------------------------
+Desde PowerShell:
+
+  ssh root@127.0.0.1 -p 2222
+
+Escribir "yes" para aceptar el host, luego ingresar:
+  password123
+
+Debe mostrar el banner de Amazon Linux 2023.
+
+
+----------------------------------------------------------
+7. VERIFICAR IP DEL WAZUH-INDEXER
+----------------------------------------------------------
+Desde PowerShell:
+
+  docker inspect single-node-wazuh.indexer-1 | findstr "IPAddress"
+
+Buscar la línea:
+  "IPAddress": "172.18.0.2"
+
+Esa IP debe coincidir con HOST_WAZUH en SshTunnel.java.
+NOTA: Esta IP puede cambiar si se recrea la red Docker.
+Verificar siempre antes de correr el proyecto Java.
+
+
+----------------------------------------------------------
+8. ACTUALIZAR IP EN EL CÓDIGO JAVA (si es necesario)
+----------------------------------------------------------
+Archivo:
+  vulncheck/src/main/java/.../config/SshTunnel.java
+
+Cambiar:
+  private final String HOST_WAZUH = "172.19.0.2";
+
+Por la IP real del indexer (verificar con paso 7):
+  private final String HOST_WAZUH = "172.18.0.2";
+
+
+----------------------------------------------------------
+9. ABRIR REGLAS DE FIREWALL EN WINDOWS (solo primera vez)
+----------------------------------------------------------
+Desde PowerShell como ADMINISTRADOR:
+
+  netsh advfirewall firewall add rule name="Wazuh Manager" dir=in action=allow protocol=TCP localport=1514
+  netsh advfirewall firewall add rule name="Wazuh Manager UDP" dir=in action=allow protocol=UDP localport=1514
+  netsh advfirewall firewall add rule name="Wazuh Enrollment" dir=in action=allow protocol=TCP localport=1515
+
+
+----------------------------------------------------------
+10. INSTALAR AGENTE WAZUH EN OTRA MÁQUINA
+----------------------------------------------------------
+a) Verificar tu IP local desde PowerShell:
+     ipconfig
+   Usar la IP del adaptador de red activo (ej: 192.168.1.4)
+
+b) Abrir el dashboard en: https://localhost
+   Usuario: admin
+   Contraseña: SecretPassword
+   (Si Chrome bloquea: click "Avanzado" -> "Acceder a localhost")
+
+c) En el dashboard:
+   Menu (=) -> Server management -> Endpoints summary -> Deploy new agent
+
+d) Completar el formulario:
+   - Sistema operativo: Windows (o el que corresponda)
+   - Manager address: TU_IP_LOCAL (ej: 192.168.1.4)
+   - Agent name: nombre cualquiera
+
+e) Copiar el comando generado y ejecutarlo en PowerShell
+   como ADMINISTRADOR en la máquina del agente.
+
+f) Iniciar el agente en la máquina remota:
+     NET START WazuhSvc
+
+g) Verificar en el dashboard que el agente aparezca como "Active"
+   en Endpoints summary.
+
+
+----------------------------------------------------------
+11. CORRER EL PROYECTO JAVA
+----------------------------------------------------------
+Desde PowerShell en la carpeta del proyecto:
+
+  cd vulncheck
+  .\mvnw spring-boot:run
+
+Salida esperada:
+  Tunel abierto en el puerto local: 9201
+  Consultando vulnerabilidades...
+  Respuesta de Wazuh: {"took":...,"hits":{...}}
+  Tunel cerrado correctamente.
+
+NOTA: Si "value":0, el scanner aun no ha procesado datos.
+Esperar unos minutos con el agente conectado y volver a correr.
+
+
+----------------------------------------------------------
+RESUMEN DE INICIO RAPIDO (cada vez que se usa)
+----------------------------------------------------------
+1. PowerShell como ADMINISTRADOR:
+     cd C:\...\wazuh-docker\single-node
+     net stop winnat
+     docker-compose up -d
+     net start winnat
+
+2. Iniciar SSH en el manager:
+     docker exec -it single-node-wazuh.manager-1 bash
+     dnf install openssh-server -y
+     ssh-keygen -A
+     sed -i '67s/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+     /usr/sbin/sshd
+     exit
+
+3. Verificar IP del indexer:
+     docker inspect single-node-wazuh.indexer-1 | findstr "IPAddress"
+
+4. Actualizar IP en SshTunnel.java si cambio.
+
+5. Correr el proyecto Java:
+     .\mvnw spring-boot:run
+
+
+----------------------------------------------------------
+CREDENCIALES
+----------------------------------------------------------
+SSH usuario:           root
+SSH contrasena:        password123
+SSH puerto:            2222
+
+Wazuh API usuario:     admin
+Wazuh API contrasena:  SecretPassword
+Wazuh API puerto:      9200 (indexer) / 9201 (local via tunnel)
+
+Dashboard Wazuh:       https://localhost
+
+
+----------------------------------------------------------
+PUERTOS USADOS
+----------------------------------------------------------
+2222  -> SSH al wazuh-manager
+1514  -> Comunicacion agentes
+1515  -> Enrollment de agentes
+55000 -> API REST de Wazuh
+9200  -> OpenSearch (indexer, interno)
+9201  -> Port forward local hacia indexer via SSH tunnel
+5601  -> Dashboard (accesible en https://localhost)
+=========================================================

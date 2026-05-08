@@ -1,0 +1,177 @@
+========================================================
+  ENTREGA 1 — PASOS COMPLETOS PARA EL LAB (WAZUH REAL)
+========================================================
+
+ANTES DE IR AL LAB
+------------------
+1. La app ya esta probada y funciona con Wazuh local (v4.9.1).
+   Resultado esperado verificado: { "estado": "CONECTADO", "wazuh_version": "v4.9.1" }
+
+2. Unico cambio necesario para el lab: editar application.properties
+   con los datos reales del servidor del profe.
+
+
+EN EL LAB — PASO A PASO
+------------------------
+
+PASO 1 — Conectarse a la red del lab
+   - Conectar el notebook al switch/router del lab con cable de red
+   - O conectarse al WiFi del lab si hay
+   - Verificar que tienes IP en la red del lab:
+     ipconfig   (buscar la IP que te asignaron, ej: 192.168.1.X)
+
+
+PASO 2 — Obtener la IP del servidor Wazuh
+   El servidor Wazuh es una maquina del lab. Opciones para encontrar la IP:
+   a) Preguntarle directamente al profe o wachu
+   b) Desde cualquier PC del lab: ipconfig y ver la IP del servidor
+   c) El profe dijo que la maquina tendra Wazuh corriendo con Docker
+
+   La IP del servidor sera algo como: 192.168.X.X o 10.X.X.X
+
+
+PASO 3 — Obtener credenciales del servidor Wazuh
+   Desde cualquier PC del lab que tenga acceso al servidor, correr:
+
+   a) Ver que contenedores corren:
+      docker ps
+
+   b) Copiar el ID del contenedor wazuh-manager y correr:
+      docker inspect <ID_MANAGER> --format "{{range .Config.Env}}{{println .}}{{end}}"
+
+   Buscar estas lineas en la salida:
+      API_USERNAME=wazuh-wui          → usuario de la API
+      API_PASSWORD=...                → contraseña de la API
+      INDEXER_USERNAME=admin          → usuario del Indexer
+      INDEXER_PASSWORD=...            → contraseña del Indexer
+
+   Tambien ver la IP interna del Indexer (red Docker):
+      docker inspect <ID_INDEXER> --format "{{.NetworkSettings.Networks}}"
+      (buscar la IP que empieza en 172.X.X.X)
+
+
+PASO 4 — Editar application.properties con datos del lab
+   Archivo: vulncheck/src/main/resources/application.properties
+
+   Cambiar a modo SSH y llenar con datos reales:
+
+   wazuh.ssh.enabled=true
+   wazuh.ssh.host=<IP DEL SERVIDOR EN EL LAB>   # ej: 192.168.1.50
+   wazuh.ssh.port=2222
+   wazuh.ssh.user=root
+   wazuh.ssh.password=<password SSH del servidor>
+
+   wazuh.indexer.remote-host=<IP INTERNA DOCKER DEL INDEXER>  # ej: 172.19.0.2
+   wazuh.indexer.remote-port=9200
+   wazuh.indexer.local-port=9201
+   wazuh.indexer.user=<INDEXER_USERNAME del paso 3>
+   wazuh.indexer.password=<INDEXER_PASSWORD del paso 3>
+
+   wazuh.manager.remote-host=127.0.0.1
+   wazuh.manager.remote-port=55000
+   wazuh.manager.local-port=55001
+   wazuh.manager.user=<API_USERNAME del paso 3>
+   wazuh.manager.password=<API_PASSWORD del paso 3>
+
+
+PASO 5 — Compilar y correr
+   cd vulncheck
+   mvn spring-boot:run
+
+   En consola debe aparecer:
+   "Tunel SSH establecido — Indexer: localhost:9201 | Manager API: localhost:55001"
+
+   Si aparece error SSH: la IP o puerto del servidor son incorrectos.
+
+
+PASO 6 — Verificar con el profe (DEMO)
+   Abrir navegador y mostrar:
+
+   a) WAZUH CONECTADO + VERSION:
+      GET http://localhost:8080/api/wazuh/status
+      → { "estado": "CONECTADO", "wazuh_version": "v4.X.X", "total_agentes": 4 }
+
+   b) VULNERABILIDADES CON FILTRO:
+      GET http://localhost:8080/api/wazuh/vulnerabilities?severity=Critical
+      GET http://localhost:8080/api/wazuh/vulnerabilities?severity=High
+      GET http://localhost:8080/api/wazuh/vulnerabilities?agente=001
+
+
+PROBLEMAS COMUNES Y SOLUCIONES
+-------------------------------
+
+ERROR: "Auth fail" en el tunel SSH
+   - La IP o puerto SSH son incorrectos
+   - Probar: ssh -p 2222 root@<IP DEL SERVIDOR>
+   - Si pide contraseña diferente, consultarla al profe/wachu
+
+ERROR: "401 Unauthorized" al obtener token JWT
+   - Las credenciales de la API del Manager son incorrectas
+   - Repetir PASO 3 para obtener las credenciales reales del servidor
+   - Probar tambien con usuario "wazuh" password "wazuh"
+
+ERROR: "Connection refused" en /manager/info
+   - El tunel al Manager API no llego (puerto 55000 bloqueado)
+   - Verificar que wazuh.manager.remote-host=127.0.0.1 (no la IP del servidor)
+
+ERROR: "index_not_found" en /vulnerabilities
+   - El Indexer no tiene datos aun
+   - Esperar que los agentes del lab reporten (puede tardar minutos)
+   - Probar sin filtro: GET /api/wazuh/vulnerabilities
+
+IMPORTANTE — IP del manager vs IP del servidor
+   - wazuh.ssh.host        = IP del SERVIDOR DEL LAB en la red (ej: 192.168.1.50)
+   - wazuh.manager.remote-host = 127.0.0.1 (dentro del tunel, el manager es localhost)
+   - wazuh.indexer.remote-host = IP INTERNA DOCKER (ej: 172.19.0.2)
+   Estas son tres IPs distintas. No confundirlas.
+
+
+CHECKLIST FINAL PARA LA PRESENTACION
+--------------------------------------
+[ ] Conectado a la red del lab (cable o WiFi)
+[ ] application.properties actualizado con IP y credenciales del lab
+[ ] Consola muestra "Tunel SSH establecido..."
+[ ] GET /api/wazuh/status → "CONECTADO" con version real y agentes
+[ ] GET /api/wazuh/vulnerabilities?severity=Critical → retorna datos
+[ ] GET /api/wazuh/vulnerabilities?severity=High → retorna datos
+[ ] Puedes explicar el flujo completo al profe
+
+
+LO QUE APRENDIMOS HOY (para aplicar en el lab)
+-----------------------------------------------
+- Las credenciales de Wazuh se obtienen con:
+  docker inspect <ID> --format "{{range .Config.Env}}{{println .}}{{end}}"
+  Buscar: API_USERNAME, API_PASSWORD, INDEXER_USERNAME, INDEXER_PASSWORD
+
+- La respuesta de /manager/info viene en:
+  data.affected_items[0].version  (NO en data.version directamente)
+
+- El usuario "wazuh-wui" es valido para autenticarse en la API del Manager
+
+- Con SSH desactivado (wazuh.ssh.enabled=false) la app conecta
+  directamente a los puertos locales (util para pruebas en casa)
+
+
+ARCHIVOS DEL PROYECTO
+----------------------
+vulncheck/
+├── Jenkinsfile                          → Pipeline CI/CD
+├── sonar-project.properties            → Config SonarQube
+├── docker-compose.yml                  → Wazuh local (no usar en el lab)
+├── pom.xml                             → Dependencias + plugin Sonar
+└── src/main/
+    ├── resources/
+    │   └── application.properties      → *** EDITAR CON DATOS DEL LAB ***
+    └── java/.../vulncheck/
+        ├── VulncheckApplication.java   → Main (solo arranca Spring)
+        ├── config/
+        │   ├── SshTunnel.java          → Abre tunel SSH (2 forwards)
+        │   ├── TunnelConfig.java       → Ciclo de vida del tunel
+        │   └── RestTemplateConf.java   → SSL autofirmado
+        ├── service/
+        │   ├── WazuhAuthService.java   → JWT token (con cache)
+        │   ├── WazuhManagerService.java → Version + agentes (Manager API)
+        │   └── WazuhIndexerService.java → Vulnerabilidades (Indexer)
+        └── controller/
+            └── WazuhController.java    → GET /api/wazuh/status
+                                          GET /api/wazuh/vulnerabilities

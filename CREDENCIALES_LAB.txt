@@ -1,0 +1,123 @@
+========================================================
+  COMO OBTENER LAS CREDENCIALES DEL LAB
+========================================================
+
+PASO 1 — Conectarse a la red del lab
+--------------------------------------
+Conectar el notebook al switch del lab con cable de red.
+
+Verificar que tienes IP:
+   ipconfig
+   (buscar "Adaptador Ethernet" → "Direccion IPv4", ej: 192.168.1.X)
+
+
+PASO 2 — Encontrar la IP del servidor Wazuh
+--------------------------------------------
+Opcion A: preguntarle directamente al profe o wachu.
+
+Opcion B: desde cualquier PC del lab que tenga Docker:
+   docker ps
+   (ver la columna PORTS del contenedor wazuh-manager)
+   (la IP del servidor es la de esa maquina en la red del lab)
+
+Opcion C: si sabes que maquina es, ver su IP con:
+   ipconfig   (en Windows)
+   ip a       (en Linux)
+
+
+PASO 3 — Obtener credenciales del servidor Wazuh
+-------------------------------------------------
+Desde una PC del lab que tenga acceso al Docker del servidor,
+o directamente en el servidor:
+
+   a) Ver los contenedores corriendo:
+      docker ps
+
+   b) Copiar el ID del contenedor wazuh-manager (columna CONTAINER ID)
+
+   c) Correr este comando con ese ID:
+      docker inspect <ID_MANAGER> --format "{{range .Config.Env}}{{println .}}{{end}}"
+
+   d) Buscar estas lineas en la salida:
+      API_USERNAME=...       → usuario para JWT (wazuh.manager.user)
+      API_PASSWORD=...       → contraseña para JWT (wazuh.manager.password)
+      INDEXER_USERNAME=...   → usuario del Indexer (wazuh.indexer.user)
+      INDEXER_PASSWORD=...   → contraseña del Indexer (wazuh.indexer.password)
+
+
+PASO 4 — Encontrar la IP interna del Indexer (red Docker)
+----------------------------------------------------------
+La IP del Indexer NO es la IP del servidor — es una IP interna de Docker
+que empieza en 172.X.X.X
+
+Correr este comando con el ID del contenedor wazuh-indexer:
+   docker inspect <ID_INDEXER> --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"
+
+Esa IP es la que va en: wazuh.indexer.remote-host
+
+
+PASO 5 — Encontrar credenciales SSH del servidor
+-------------------------------------------------
+El SSH es para entrar al servidor Linux/Docker donde corre Wazuh.
+   - Puerto SSH: 2222 (mapeado desde el contenedor)
+   - Usuario SSH: root (normalmente)
+   - Contraseña SSH: preguntar al profe o wachu
+
+Para verificar que el SSH funciona antes de correr la app:
+   ssh -p 2222 root@<IP DEL SERVIDOR>
+   (si pide contrasena y entra, el SSH esta ok)
+
+
+RESUMEN — Llenar en application.properties
+-------------------------------------------
+Con los datos obtenidos en los pasos anteriores, editar:
+vulncheck/src/main/resources/application.properties
+
+   wazuh.ssh.enabled=true
+   wazuh.ssh.host=         (PASO 2 — IP del servidor en la red del lab)
+   wazuh.ssh.port=2222
+   wazuh.ssh.user=root
+   wazuh.ssh.password=     (PASO 5 — contraseña SSH)
+
+   wazuh.indexer.remote-host=   (PASO 4 — IP interna Docker 172.X.X.X)
+   wazuh.indexer.remote-port=9200
+   wazuh.indexer.local-port=9201
+   wazuh.indexer.user=          (PASO 3 — INDEXER_USERNAME)
+   wazuh.indexer.password=      (PASO 3 — INDEXER_PASSWORD)
+
+   wazuh.manager.remote-host=127.0.0.1   (siempre 127.0.0.1, no cambiar)
+   wazuh.manager.remote-port=55000
+   wazuh.manager.local-port=55001
+   wazuh.manager.user=          (PASO 3 — API_USERNAME)
+   wazuh.manager.password=      (PASO 3 — API_PASSWORD)
+
+
+VERIFICACION RAPIDA
+--------------------
+Una vez editado application.properties y corrida la app:
+
+   mvn spring-boot:run
+
+   Consola debe decir:
+   "Tunel SSH establecido — Indexer: localhost:9201 | Manager API: localhost:55001"
+
+   Luego en el navegador:
+   GET http://localhost:8080/api/wazuh/status
+   → { "estado": "CONECTADO", "wazuh_version": "v4.X.X", ... }
+
+   GET http://localhost:8080/api/wazuh/auth
+   → muestra el JWT token obtenido de Wazuh
+
+
+EJEMPLO REAL (como quedo en casa con Docker local)
+---------------------------------------------------
+Para referencia, asi quedaron los datos con el Wazuh local:
+
+   API_USERNAME = wazuh-wui
+   API_PASSWORD = MyS3cr37P450r.*-
+   INDEXER_USERNAME = admin
+   INDEXER_PASSWORD = SecretPassword
+   SSH host = 127.0.0.1 (en el lab sera otra IP)
+   Indexer IP Docker = 127.0.0.1 (en el lab sera 172.X.X.X)
+
+En el lab los valores seran distintos pero el formato es el mismo.
