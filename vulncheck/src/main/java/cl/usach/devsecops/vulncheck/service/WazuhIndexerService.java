@@ -7,6 +7,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,8 +19,17 @@ public class WazuhIndexerService {
 
     private static final Set<String> SEVERIDADES_VALIDAS = Set.of("Critical", "High", "Medium", "Low");
 
+    @Value("${wazuh.ssh.enabled:true}")
+    private boolean sshEnabled;
+
     @Value("${wazuh.indexer.local-port}")
     private int indexerLocalPort;
+
+    @Value("${wazuh.indexer.remote-host}")
+    private String indexerRemoteHost;
+
+    @Value("${wazuh.indexer.remote-port}")
+    private int indexerRemotePort;
 
     @Value("${wazuh.indexer.user}")
     private String indexerUser;
@@ -34,18 +44,105 @@ public class WazuhIndexerService {
     }
 
     @SuppressWarnings("unchecked")
+    public Map<String, Object> authenticate() {
+        String base = sshEnabled
+                ? "https://127.0.0.1:" + indexerLocalPort
+                : "https://" + indexerRemoteHost + ":" + indexerRemotePort;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBasicAuth(indexerUser, indexerPassword, java.nio.charset.StandardCharsets.UTF_8);
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        Map<String, Object> authInfo = restTemplate.exchange(
+                base + "/_plugins/_security/authinfo",
+                org.springframework.http.HttpMethod.GET, request,
+                (Class<Map<String, Object>>) (Class<?>) Map.class).getBody();
+
+        Instant now = Instant.now();
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("autenticado", true);
+        result.put("usuario", authInfo.get("user_name"));
+        result.put("roles", authInfo.get("roles"));
+        result.put("backend_roles", authInfo.get("backend_roles"));
+        result.put("tipo_auth", "Basic Auth → JWT Wazuh Indexer");
+        result.put("indexer_host", indexerRemoteHost + ":" + indexerRemotePort);
+        result.put("timestamp", now.toString());
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> getClusterInfo() {
+        String base = sshEnabled
+                ? "https://127.0.0.1:" + indexerLocalPort
+                : "https://" + indexerRemoteHost + ":" + indexerRemotePort;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBasicAuth(indexerUser, indexerPassword, java.nio.charset.StandardCharsets.UTF_8);
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        // GET / — cluster info
+        Map<String, Object> root = restTemplate.exchange(
+                base + "/", org.springframework.http.HttpMethod.GET, request,
+                (Class<Map<String, Object>>) (Class<?>) Map.class).getBody();
+
+        // GET /_cluster/health — cluster health
+        Map<String, Object> health = restTemplate.exchange(
+                base + "/_cluster/health", org.springframework.http.HttpMethod.GET, request,
+                (Class<Map<String, Object>>) (Class<?>) Map.class).getBody();
+
+        // Aggregation: count vulnerabilities per agent
+        String aggsQuery = """
+                {"size":0,"aggs":{"agentes":{"terms":{"field":"agent.id","size":50}}}}""";
+        HttpHeaders jsonHeaders = new HttpHeaders();
+        jsonHeaders.setContentType(MediaType.APPLICATION_JSON);
+        jsonHeaders.setBasicAuth(indexerUser, indexerPassword, java.nio.charset.StandardCharsets.UTF_8);
+        HttpEntity<String> aggsReq = new HttpEntity<>(aggsQuery, jsonHeaders);
+        Map<String, Object> aggsRaw = restTemplate.postForObject(
+                base + "/wazuh-states-vulnerabilities-*/_search", aggsReq,
+                (Class<Map<String, Object>>) (Class<?>) Map.class);
+
+        Map<String, Object> version = (Map<String, Object>) root.get("version");
+        List<Map<String, Object>> buckets = (List<Map<String, Object>>)
+                ((Map<String, Object>) ((Map<String, Object>) aggsRaw.get("aggregations")).get("agentes")).get("buckets");
+
+        List<Map<String, Object>> agentes = buckets.stream().map(b -> {
+            Map<String, Object> a = new LinkedHashMap<>();
+            a.put("agente_id", b.get("key"));
+            a.put("vulnerabilidades", b.get("doc_count"));
+            return a;
+        }).collect(Collectors.toList());
+
+        Map<String, Object> hitsTotal = (Map<String, Object>)
+                ((Map<String, Object>) aggsRaw.get("hits")).get("total");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("estado", "CONECTADO");
+        result.put("cluster_nombre", root.get("cluster_name"));
+        result.put("nodo_nombre", root.get("name"));
+        result.put("opensearch_version", version != null ? version.get("number") : "N/A");
+        result.put("cluster_salud", health != null ? health.get("status") : "N/A");
+        result.put("total_vulnerabilidades", hitsTotal.get("value"));
+        result.put("agentes", agentes);
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
     public Map<String, Object> getVulnerabilities(String severity, String agentId, int size) {
         if (severity != null && !SEVERIDADES_VALIDAS.contains(severity)) {
             throw new IllegalArgumentException(
                     "Severidad invalida: '" + severity + "'. Valores permitidos: Critical, High, Medium, Low");
         }
 
-        String url = "https://127.0.0.1:" + indexerLocalPort + "/wazuh-states-vulnerabilities-*/_search";
+        String base = sshEnabled
+                ? "https://127.0.0.1:" + indexerLocalPort
+                : "https://" + indexerRemoteHost + ":" + indexerRemotePort;
+        String url = base + "/wazuh-states-vulnerabilities-*/_search";
         String query = buildQuery(severity, agentId, Math.min(size, 100));
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBasicAuth(indexerUser, indexerPassword);
+        headers.setBasicAuth(indexerUser, indexerPassword, java.nio.charset.StandardCharsets.UTF_8);
         HttpEntity<String> request = new HttpEntity<>(query, headers);
 
         Map<String, Object> raw = restTemplate.postForObject(url, request,

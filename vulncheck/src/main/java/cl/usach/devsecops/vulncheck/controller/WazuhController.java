@@ -82,7 +82,25 @@ public class WazuhController {
             return ResponseEntity.status(503).body(error);
         }
         try {
-            return ResponseEntity.ok(authService.getTokenInfo());
+            return ResponseEntity.ok(indexerService.authenticate());
+        } catch (Exception e) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("estado", "ERROR");
+            error.put("mensaje", e.getMessage());
+            return ResponseEntity.status(503).body(error);
+        }
+    }
+
+    @GetMapping("/info")
+    public ResponseEntity<Map<String, Object>> info() {
+        if (!tunnelConfig.isConnected()) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("estado", "DESCONECTADO");
+            error.put("mensaje", "Tunel SSH no disponible — verificar conexion con Wazuh");
+            return ResponseEntity.status(503).body(error);
+        }
+        try {
+            return ResponseEntity.ok(indexerService.getClusterInfo());
         } catch (Exception e) {
             Map<String, Object> error = new LinkedHashMap<>();
             error.put("estado", "ERROR");

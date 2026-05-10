@@ -2,155 +2,88 @@
 
 ## ¿Qué es este proyecto?
 
-**VulnChecker** es un middleware que actúa como puente entre el servidor Wazuh (herramienta de seguridad) y una futura aplicación frontend. Su trabajo es conectarse a Wazuh, autenticarse, consultar vulnerabilidades y exponerlas como una API REST.
+**VulnChecker** es un middleware que actúa como puente entre el servidor Wazuh del laboratorio y quien quiera consultar vulnerabilidades. Se conecta directamente al Wazuh del lab, consulta datos reales y los expone como una API REST.
 
 ---
 
-## Arquitectura general
+## Arquitectura real (lab)
 
 ```
-[Tu máquina - localhost:8080]
-         |
-         |  Túnel SSH (puerto 2222)
-         |
-[Servidor Wazuh]
-    |              |
-    |              |
-[Manager API]  [Indexer OpenSearch]
- puerto 55000    puerto 9200
- (JWT auth)      (Basic Auth)
+[PC alumno 158.170.12.118:8743]
+              |
+              |  HTTPS directo (sin SSH)
+              |
+[Wazuh Indexer 158.170.12.112:9200]
+         OpenSearch con datos reales
+         9 agentes, ~19.000 vulnerabilidades
 ```
 
-El middleware corre en tu máquina. Se conecta al servidor del lab vía SSH y abre dos "canales" por ese túnel:
-- Uno hacia el **Manager API** de Wazuh → para obtener versión y agentes
-- Uno hacia el **Indexer** (OpenSearch) → para consultar vulnerabilidades
+El Indexer (OpenSearch) en el puerto 9200 es accesible directamente desde la red del lab. No se requiere túnel SSH porque ambas máquinas están en el mismo segmento de red (`158.170.12.x`).
+
+> **¿Cuándo sería necesario el SSH?**
+> Si el puerto 9200 estuviera bloqueado por firewall, o si se accediera desde fuera de la red del lab (internet, VPN, etc.).
 
 ---
 
-## ¿Qué es un Túnel SSH y por qué se usa?
+## ¿Qué es el Wazuh Indexer y por qué usa Basic Auth?
 
-Normalmente la API de Wazuh (puerto 55000) no es accesible desde internet por seguridad. Solo está disponible dentro de la red interna del servidor.
-
-El túnel SSH permite **redirigir un puerto local de tu máquina hacia un puerto remoto**, pasando por una conexión SSH cifrada.
-
-```
-Tu máquina                    Servidor Wazuh
-localhost:55001  --SSH-->  127.0.0.1:55000  (Manager API)
-localhost:9201   --SSH-->  172.19.0.2:9200  (Indexer)
-```
-
-Cuando el código llama a `https://127.0.0.1:55001/manager/info`, en realidad está llegando a la API de Wazuh dentro del servidor, sin exposición directa al exterior.
-
-### Código relevante: `SshTunnel.java`
-
-```
-openTunnel() → conecta SSH → abre 2 forwards de puertos → retorna sesión activa
-closeTunnel() → cierra la sesión cuando la app se detiene
-```
-
----
-
-## ¿Qué es JWT y cómo funciona con Wazuh?
-
-**JWT (JSON Web Token)** es un estándar para autenticación sin guardar sesiones en el servidor. Funciona así:
-
-### Paso 1 — Login (obtener el token)
-```
-POST /security/user/authenticate
-Authorization: Basic base64(usuario:contraseña)
-
-Respuesta:
-{
-  "data": {
-    "token": "eyJhbGciOiJFUzUxMiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ3..."
-  }
-}
-```
-
-### Paso 2 — Usar el token en cada request
-```
-GET /manager/info
-Authorization: Bearer eyJhbGciOiJFUzUxMiIsInR5cCI6IkpXVCJ9...
-
-Respuesta:
-{
-  "data": {
-    "version": "4.9.0",
-    "hostname": "wazuh-manager",
-    ...
-  }
-}
-```
-
-### ¿Qué tiene dentro el token JWT?
-Un JWT tiene 3 partes separadas por puntos (`.`):
-
-```
-eyJhbGciOiJFUzUxMiJ9   .   eyJ1c2VyIjoid2F6dWgifQ   .   <firma>
-     HEADER                        PAYLOAD                  SIGNATURE
-  (algoritmo)                (datos: usuario, expiración)   (verificación)
-```
-
-Se puede decodificar en [jwt.io](https://jwt.io) para ver el contenido.
-
-### ¿Por qué Wazuh usa JWT y no solo usuario/contraseña?
-
-- **Eficiencia**: con Basic Auth habría que verificar usuario/contraseña en cada request. Con JWT, solo se verifica la firma matemática del token (más rápido).
-- **Expiración**: el token expira automáticamente a los 900 segundos (15 min). Después hay que pedir uno nuevo.
-- **Sin estado**: el servidor no guarda sesiones, el token es autocontenido.
-
-### Caché del token en el proyecto
-
-`WazuhAuthService.java` guarda el token en memoria y solo pide uno nuevo cuando está por expirar (cada 890 segundos), evitando hacer login en cada request:
-
-```
-getToken() → ¿token válido? → SÍ → retorna el que tiene guardado
-                            → NO → llama a Wazuh → guarda nuevo token → retorna
-```
-
----
-
-## ¿Qué es el Indexer y por qué usa Basic Auth en vez de JWT?
-
-Wazuh tiene **dos componentes** separados:
+Wazuh internamente almacena todos sus datos (vulnerabilidades, alertas, logs) en **OpenSearch**, una base de datos de búsqueda. Ese componente se llama **Wazuh Indexer** y corre en el puerto `9200`.
 
 | Componente | Puerto | Autenticación | Para qué |
-|------------|--------|---------------|----------|
-| Manager API | 55000 | JWT | Gestión: agentes, reglas, versión |
-| Indexer (OpenSearch) | 9200 | Basic Auth | Búsqueda de datos: vulnerabilidades, alertas |
+|---|---|---|---|
+| Wazuh Indexer (OpenSearch) | 9200 | Basic Auth | Vulnerabilidades, alertas, logs |
+| Wazuh Manager API | 55000 | JWT | Gestión: agentes, reglas, versión |
 
-El Indexer es básicamente una base de datos OpenSearch. Usa Basic Auth porque es más simple para queries de lectura masiva, y tiene su propio sistema de seguridad.
+El Indexer usa Basic Auth porque es más simple para queries de lectura masiva. En el lab, el Manager API (55000) no está activo.
 
 ---
 
-## Flujo completo al llamar `/api/wazuh/status`
+## ¿Qué es el encoding UTF-8 y por qué importa?
+
+La contraseña del lab contiene `ñ`. Java por defecto codifica las credenciales HTTP en ISO-8859-1, que representa `ñ` de forma diferente a UTF-8. Esto causaba error **401 Unauthorized**.
+
+Solución aplicada en `WazuhIndexerService.java`:
+```java
+headers.setBasicAuth(indexerUser, indexerPassword, StandardCharsets.UTF_8);
+```
+
+Y en `application.properties` el carácter `ñ` se escribe como `ñ` para evitar problemas de lectura del archivo:
+```properties
+wazuh.indexer.password=usuariocontraseña
+```
+
+---
+
+## Flujo completo al llamar `/api/wazuh/info`
 
 ```
-1. Cliente llama GET http://localhost:8080/api/wazuh/status
+1. Cliente llama GET http://158.170.12.118:8743/api/wazuh/info
 
-2. WazuhController verifica si el túnel SSH está activo
-   └─ Si no → responde 503 "DESCONECTADO"
+2. WazuhController verifica que el flag de conexión esté activo
+   (con ssh.enabled=false, TunnelConfig marca connected=true automáticamente)
 
-3. WazuhController llama a WazuhManagerService.getManagerInfo()
-   └─ WazuhManagerService pide token a WazuhAuthService.getToken()
-       └─ Si el token está en caché y vigente → lo usa
-       └─ Si no → POST https://127.0.0.1:55001/security/user/authenticate
-                  → guarda token nuevo en memoria
-   └─ GET https://127.0.0.1:55001/manager/info con Bearer token
-   └─ Retorna {version: "4.9.0", hostname: "...", ...}
+3. WazuhController llama a WazuhIndexerService.getClusterInfo()
 
-4. WazuhController llama a WazuhManagerService.getAgents()
-   └─ Reutiliza el mismo token del caché
-   └─ GET https://127.0.0.1:55001/agents con Bearer token
-   └─ Retorna lista de agentes [{id, name, ip, status, version}, ...]
+4. WazuhIndexerService hace 3 llamadas al Indexer:
+   a) GET https://158.170.12.112:9200/
+      → nombre del cluster, nodo, versión de OpenSearch
+   b) GET https://158.170.12.112:9200/_cluster/health
+      → estado del cluster (green/yellow/red)
+   c) POST https://158.170.12.112:9200/wazuh-states-vulnerabilities-*/_search
+      → agrupación por agent.id con conteo de vulnerabilidades
 
-5. WazuhController construye la respuesta final:
+5. WazuhController responde:
    {
      "estado": "CONECTADO",
-     "wazuh_version": "4.9.0",
-     "wazuh_ip": "172.19.0.2",
-     "total_agentes": 4,
-     "agentes": [...]
+     "cluster_nombre": "wazuh-cluster",
+     "nodo_nombre": "node-1",
+     "opensearch_version": "7.10.2",
+     "cluster_salud": "yellow",
+     "total_vulnerabilidades": 10000,
+     "agentes": [
+       { "agente_id": "013", "vulnerabilidades": 9545 },
+       ...
+     ]
    }
 ```
 
@@ -159,16 +92,12 @@ El Indexer es básicamente una base de datos OpenSearch. Usa Basic Auth porque e
 ## Flujo completo al llamar `/api/wazuh/vulnerabilities?severity=Critical`
 
 ```
-1. Cliente llama GET http://localhost:8080/api/wazuh/vulnerabilities?severity=Critical
+1. Cliente llama GET http://158.170.12.118:8743/api/wazuh/vulnerabilities?severity=Critical
 
-2. WazuhController verifica túnel activo
+2. WazuhIndexerService valida que "Critical" sea un valor permitido
+   Valores válidos: Critical, High, Medium, Low
 
-3. WazuhController llama WazuhIndexerService.getVulnerabilities("Critical", null, 10)
-
-4. WazuhIndexerService valida que "Critical" sea un valor permitido
-   └─ Valores permitidos: Critical, High, Medium, Low
-
-5. WazuhIndexerService construye query OpenSearch:
+3. WazuhIndexerService construye query OpenSearch:
    {
      "size": 10,
      "query": {
@@ -180,22 +109,21 @@ El Indexer es básicamente una base de datos OpenSearch. Usa Basic Auth porque e
      }
    }
 
-6. POST https://127.0.0.1:9201/wazuh-states-vulnerabilities-*/_search
-   Authorization: Basic admin:SecretPassword
-   (este es el Indexer, usa Basic Auth, no JWT)
+4. POST https://158.170.12.112:9200/wazuh-states-vulnerabilities-*/_search
+   Authorization: Basic usuario1:<contraseña en UTF-8>
 
-7. WazuhIndexerService parsea la respuesta y la simplifica:
+5. WazuhIndexerService parsea y simplifica la respuesta:
    {
-     "total": 42,
-     "filtros_aplicados": {"severidad": "Critical", "agente": "todos"},
+     "total": 842,
+     "filtros_aplicados": { "severidad": "Critical", "agente": "todos" },
      "vulnerabilidades": [
        {
          "cve": "CVE-2021-44228",
          "severidad": "Critical",
-         "descripcion": "Log4Shell vulnerability...",
+         "descripcion": "...",
          "paquete": "log4j 2.14.1",
-         "agente_id": "001",
-         "agente_nombre": "ubuntu-server"
+         "agente_id": "013",
+         "agente_nombre": "..."
        },
        ...
      ]
@@ -207,119 +135,80 @@ El Indexer es básicamente una base de datos OpenSearch. Usa Basic Auth porque e
 ## Componentes del proyecto
 
 ### `VulncheckApplication.java`
-Punto de entrada. Solo arranca Spring Boot. No tiene lógica de negocio.
+Punto de entrada. Solo arranca Spring Boot.
 
 ### `config/SshTunnel.java`
-Abre la conexión SSH y registra dos port-forwards:
-- `localhost:9201` → `172.19.0.2:9200` (Indexer)
-- `localhost:55001` → `127.0.0.1:55000` (Manager API)
-
-Lee su configuración de `application.properties` con `@Value`.
+Código de túnel SSH (no se usa en el lab con `ssh.enabled=false`). Presente para cuando sea necesario acceder desde fuera de la red.
 
 ### `config/TunnelConfig.java`
-Gestiona el ciclo de vida del túnel:
-- `@PostConstruct` → abre el túnel cuando la app arranca
-- `@PreDestroy` → cierra el túnel cuando la app se detiene
-- Si el túnel falla, la app arranca igual pero en estado DESCONECTADO
+Gestiona el estado de conexión:
+- Si `ssh.enabled=false` → marca `connected=true` directamente sin abrir SSH
+- Si `ssh.enabled=true` → abre el túnel SSH y marca `connected=true` si tiene éxito
+- Expone `isConnected()` para que el controller sepa si puede responder
 
 ### `config/RestTemplateConf.java`
-Configura el cliente HTTP para aceptar certificados SSL autofirmados. Wazuh usa HTTPS con un certificado propio (no de una CA oficial), por lo que sin esta configuración Spring rechazaría la conexión.
-
-### `service/WazuhAuthService.java`
-- Llama a `POST /security/user/authenticate` con Basic Auth
-- Guarda el token JWT en memoria con su tiempo de expiración
-- `getToken()` retorna siempre un token válido (renueva solo cuando expira)
-
-### `service/WazuhManagerService.java`
-- `getManagerInfo()` → `GET /manager/info` → versión de Wazuh
-- `getAgents()` → `GET /agents` → lista de agentes registrados
-- Usa siempre JWT (via WazuhAuthService)
+Configura el cliente HTTP para aceptar certificados SSL autofirmados. Wazuh usa HTTPS con certificado propio.
 
 ### `service/WazuhIndexerService.java`
-- `getVulnerabilities(severity, agentId, size)` → consulta OpenSearch
+- `getClusterInfo()` → versión, salud del cluster, agentes y conteo de vulnerabilidades
+- `getVulnerabilities(severity, agentId, size)` → busca en `wazuh-states-vulnerabilities-*`
 - Construye queries dinámicas según los filtros recibidos
-- Valida los valores de severidad para evitar queries inválidas
-- Usa Basic Auth (no JWT) porque el Indexer es OpenSearch
+- Valida severidad contra whitelist: `Critical`, `High`, `Medium`, `Low`
+- Usa Basic Auth con UTF-8 explícito
 
 ### `controller/WazuhController.java`
-Expone dos endpoints REST:
+Expone los endpoints REST:
+
+| Endpoint | Estado | Descripción |
+|---|---|---|
+| `GET /api/wazuh/info` | ✅ Funciona | Versión, cluster, agentes, total vulnerabilidades |
+| `GET /api/wazuh/vulnerabilities` | ✅ Funciona | Vulnerabilidades con filtros opcionales |
+| `GET /api/wazuh/status` | ❌ No disponible | Requiere Manager API (puerto 55000, caído en el lab) |
+
+Parámetros de `/vulnerabilities`:
+- `?severity=Critical` / `High` / `Medium` / `Low`
+- `?agente=013`
+- `?size=25` (default 10, máx 100)
+
+---
+
+## URLs de demostración
+
+Con la app corriendo, accesibles desde cualquier PC en la red `158.170.12.x`:
 
 ```
-GET /api/wazuh/status
-   → Estado de conexión, versión de Wazuh, lista de agentes
-
-GET /api/wazuh/vulnerabilities
-   Parámetros opcionales:
-   - severity: Critical | High | Medium | Low
-   - agente:   ID del agente (ej: 001)
-   - size:     cantidad de resultados (default 10, máx 100)
+http://158.170.12.118:8743/api/wazuh/info
+http://158.170.12.118:8743/api/wazuh/vulnerabilities?severity=Critical&size=10
+http://158.170.12.118:8743/api/wazuh/vulnerabilities?severity=High&size=20
+http://158.170.12.118:8743/api/wazuh/vulnerabilities?agente=013&size=10
 ```
 
 ---
 
-## Pipeline CI/CD (`Jenkinsfile`)
+## Cómo levantar la aplicación
 
-```
-┌─────────┐    ┌──────┐    ┌───────────────────┐    ┌─────────────┐
-│  Build  │ -> │ Test │ -> │ SonarQube Analysis │ -> │Quality Gate │
-└─────────┘    └──────┘    └───────────────────┘    └─────────────┘
-mvn compile    mvn test     mvn sonar:sonar          pasa/falla
-```
-
-### ¿Qué es SonarQube?
-Herramienta que analiza el código fuente en busca de:
-- **Bugs**: errores potenciales en el código
-- **Code smells**: código que funciona pero está mal escrito
-- **Vulnerabilidades de seguridad**: uso de funciones inseguras
-- **Deuda técnica**: cuánto tiempo tomaría arreglar todos los problemas
-
-El **Quality Gate** es un umbral configurable. Si el código supera cierto nivel de deuda técnica o tiene bugs críticos, el pipeline falla y no se despliega.
-
----
-
-## Estructura final del proyecto
-
-```
-vulncheck/
-├── Jenkinsfile                          → Pipeline de 4 stages
-├── sonar-project.properties            → Config de SonarQube
-├── pom.xml                             → Dependencias Maven + plugin Sonar
-└── src/main/
-    ├── resources/
-    │   └── application.properties      → IPs, puertos, credenciales
-    └── java/cl/usach/devsecops/vulncheck/
-        ├── VulncheckApplication.java
-        ├── config/
-        │   ├── SshTunnel.java
-        │   ├── TunnelConfig.java
-        │   └── RestTemplateConf.java
-        ├── service/
-        │   ├── WazuhAuthService.java
-        │   ├── WazuhManagerService.java
-        │   └── WazuhIndexerService.java
-        └── controller/
-            └── WazuhController.java
+```powershell
+$env:JAVA_HOME = "C:\Program Files\JetBrains\IntelliJ IDEA 2025.2.4\jbr"
+& "C:\Users\brand\.m2\wrapper\dists\apache-maven-3.9.12-bin\5nmfsn99br87k5d4ajlekdq10k\apache-maven-3.9.12\bin\mvn.cmd" `
+  -f "C:\Users\brand\Desktop\test\VulnChecker\vulncheck\pom.xml" `
+  spring-boot:run
 ```
 
 ---
 
-## Lo que cumple de la Entrega 1
+## Requisitos de la Entrega 1 vs estado actual
 
-| Requisito del profe | Cómo se cumple |
-|---------------------|----------------|
-| Middleware como demonio/servicio | Spring Boot corre como proceso de fondo |
-| Comunicación con Wazuh | Túnel SSH + JWT + llamadas a Manager API |
-| "Hola soy Wazuh versión X en IP Y" | `GET /api/wazuh/status` |
-| Ver agentes del lab | Campo `agentes` en la respuesta de `/status` |
-| Filtros (1-2 mínimo) | `?severity=` y `?agente=` en `/vulnerabilities` |
-| Pipeline con SonarQube | `Jenkinsfile` con 4 stages y Quality Gate |
+| Requisito | Estado | Observación |
+|---|---|---|
+| Autenticación con API de Wazuh | ✅ | Basic Auth al Indexer con UTF-8 |
+| Consumo de endpoint vulnerability detector | ✅ | Datos reales de 9 agentes del lab |
+| Persistencia local (PostgreSQL/Redis) | ⏳ | Pendiente |
+| Middleware API funcional | ✅ | Endpoints respondiendo con datos reales |
 
 ---
 
-## Lo que viene en Entrega 2
+## Observaciones
 
-- Conectar el frontend (React/Vue) al middleware
-- Mostrar vulnerabilidades en pantalla con gráficos
-- Filtros visuales (dropdowns, búsqueda)
-- Más endpoints según lo que pida el profe
-- Análisis dinámico con herramientas DAST (OWASP ZAP, etc.)
+- El **Wazuh Manager API** (puerto 55000) no está activo en el servidor del lab. Los endpoints que dependen de él retornan 503. Esto es una limitación del entorno, no de la implementación.
+- El **SSH no es necesario** en el lab porque el puerto 9200 está directamente accesible desde la red `158.170.12.x`.
+- Los datos son **reales**: 9 agentes registrados con miles de vulnerabilidades cada uno.
